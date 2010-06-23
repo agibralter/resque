@@ -15,6 +15,8 @@ module Resque
     include Helpers
     extend Helpers
 
+    SENTINEL_PREFIX = "sentinel"
+
     # Raise Resque::Job::DontPerform from a before_perform hook to
     # abort the job.
     DontPerform = Class.new(StandardError)
@@ -51,6 +53,10 @@ module Resque
       Resque.push(queue, :class => klass.to_s, :args => args)
     end
 
+    def self.is_sentinel?(string)
+      string =~ /^#{SENTINEL_PREFIX}/ ? true : false
+    end
+
     # Removes a job from a queue. Expects a string queue name, a
     # string class name, and, optionally, args.
     #
@@ -81,11 +87,14 @@ module Resque
       destroyed = 0
 
       if args.empty?
-        redis.lrange(queue, 0, -1).each do |string|
+        sentinel = "#{SENTINEL_PREFIX}:#{Time.now.to_i}:#{(0...10).map{ ('a'..'z').to_a[rand(26)] }.join}"
+        redis.lpush(queue, sentinel)
+        while (string = redis.rpoplpush(queue, queue)) != sentinel
           if decode(string)['class'] == klass
             destroyed += redis.lrem(queue, 0, string).to_i
           end
         end
+        redis.lrem(queue, 0, sentinel)
       else
         destroyed += redis.lrem(queue, 0, encode(:class => klass, :args => args))
       end

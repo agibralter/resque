@@ -125,7 +125,13 @@ module Resque
   #
   # Returns a Ruby object.
   def pop(queue)
-    decode redis.lpop("queue:#{queue}")
+    job = redis.lpop("queue:#{queue}")
+    if Job.is_sentinel?(job)
+      newjob = redis.lpop("queue:#{queue}")
+      redis.lpush(queue, job)
+      job = newjob
+    end
+    decode(job)
   end
 
   # Returns an integer representing the size of a queue.
